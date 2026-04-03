@@ -1,0 +1,63 @@
+import json
+import os
+from functools import lru_cache
+
+import boto3
+from google.oauth2 import service_account
+from googleapiclient.discovery import build, Resource
+from aws_lambda_powertools import Logger
+
+logger = Logger(service="{{SERVICE_NAME}}")
+
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    # "https://www.googleapis.com/auth/calendar",
+    # "https://www.googleapis.com/auth/drive",
+]
+
+
+@lru_cache(maxsize=1)
+def _get_credentials() -> service_account.Credentials:
+    """Load and cache Google service account credentials from SSM."""
+    ssm = boto3.client("ssm")
+    param = ssm.get_parameter(
+        Name=os.environ["GOOGLE_SA_PARAM"], WithDecryption=True
+    )
+    info = json.loads(param["Parameter"]["Value"])
+    return service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
+
+
+def get_sheets_service() -> Resource:
+    creds = _get_credentials()
+    return build("sheets", "v4", credentials=creds)
+
+
+def read_sheet(spreadsheet_id: str, range_name: str) -> list[list[str]]:
+    service = get_sheets_service()
+    result = (
+        service.spreadsheets()
+        .values()
+        .get(spreadsheetId=spreadsheet_id, range=range_name)
+        .execute()
+    )
+    return result.get("values", [])
+
+
+def write_sheet(
+    spreadsheet_id: str, range_name: str, values: list[list[str]]
+) -> None:
+    service = get_sheets_service()
+    service.spreadsheets().values().update(
+        spreadsheetId=spreadsheet_id,
+        range=range_name,
+        valueInputOption="USER_ENTERED",
+        body={"values": values},
+    ).execute()
+    logger.info(
+        "Sheet updated",
+        extra={
+            "spreadsheet_id": spreadsheet_id,
+            "range": range_name,
+            "row_count": len(values),
+        },
+    )

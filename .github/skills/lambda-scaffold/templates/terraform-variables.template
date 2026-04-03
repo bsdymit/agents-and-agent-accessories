@@ -1,0 +1,64 @@
+variable "project_name" {
+  description = "Name of the project (used in resource naming)"
+  type        = string
+}
+
+variable "description" {
+  description = "Description of what this Lambda does"
+  type        = string
+  default     = ""
+}
+
+variable "environment" {
+  description = "Deployment environment (dev, staging, prod)"
+  type        = string
+  default     = "dev"
+}
+
+variable "aws_region" {
+  description = "AWS region for deployment"
+  type        = string
+  default     = "us-east-1"
+}
+
+variable "runtime" {
+  description = "Lambda runtime (nodejs20.x, python3.12)"
+  type        = string
+  default     = "nodejs20.x"
+}
+
+variable "handler" {
+  description = "Lambda handler entry point"
+  type        = string
+  default     = "main.handler"
+}
+
+variable "timeout" {
+  description = "Lambda timeout in seconds"
+  type        = number
+  default     = 30
+}
+
+variable "memory_size" {
+  description = "Lambda memory in MB"
+  type        = number
+  default     = 256
+}
+
+variable "lambda_zip_path" {
+  description = "Path to the Lambda deployment zip"
+  type        = string
+  default     = "../dist/lambda.zip"
+}
+
+variable "log_retention_days" {
+  description = "CloudWatch log retention in days"
+  type        = number
+  default     = 14
+}
+
+variable "environment_variables" {
+  description = "Environment variables for the Lambda"
+  type        = map(string)
+  default     = {}
+}

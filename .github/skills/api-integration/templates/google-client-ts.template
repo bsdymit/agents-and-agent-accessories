@@ -1,0 +1,58 @@
+import { google, sheets_v4 } from 'googleapis';
+import { SSMClient, GetParameterCommand } from '@aws-sdk/client-ssm';
+import { Logger } from '@aws-lambda-powertools/logger';
+
+const logger = new Logger({ serviceName: '{{SERVICE_NAME}}' });
+
+// Cache auth outside handler for Lambda execution context reuse
+let cachedAuth: ReturnType<typeof google.auth.GoogleAuth> | null = null;
+
+async function getAuth() {
+  if (cachedAuth) return cachedAuth;
+
+  const ssm = new SSMClient({});
+  const param = await ssm.send(new GetParameterCommand({
+    Name: process.env.GOOGLE_SA_PARAM!,
+    WithDecryption: true,
+  }));
+
+  const credentials = JSON.parse(param.Parameter!.Value!);
+  cachedAuth = new google.auth.GoogleAuth({
+    credentials,
+    scopes: [
+      // Add scopes as needed:
+      'https://www.googleapis.com/auth/spreadsheets',
+      // 'https://www.googleapis.com/auth/calendar',
+      // 'https://www.googleapis.com/auth/drive',
+    ],
+  });
+  return cachedAuth;
+}
+
+export async function getSheetsClient(): Promise<sheets_v4.Sheets> {
+  const auth = await getAuth();
+  return google.sheets({ version: 'v4', auth });
+}
+
+// Example: Read sheet data
+export async function readSheet(spreadsheetId: string, range: string): Promise<string[][]> {
+  const sheets = await getSheetsClient();
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range });
+  return (response.data.values as string[][]) ?? [];
+}
+
+// Example: Write sheet data
+export async function writeSheet(
+  spreadsheetId: string,
+  range: string,
+  values: string[][],
+): Promise<void> {
+  const sheets = await getSheetsClient();
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values },
+  });
+  logger.info('Sheet updated', { spreadsheetId, range, rowCount: values.length });
+}

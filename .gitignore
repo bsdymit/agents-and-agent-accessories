@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+*.npm
+*.yarn
+
+# OS files
+.DS_Store
+thumbs.db
+
+# Build outputs
+dist/
+build/
+*.log
+
+# Editor temp files
+*.swp
+*.swo
+*~
+.vscode/launch.json
+.vscode/settings.json
+
+# User secrets or personal config (if any)
+.env
+.env.local
+
+# IDE
+.idea/
+*.iml

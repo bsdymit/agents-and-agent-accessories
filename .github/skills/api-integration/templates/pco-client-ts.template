@@ -1,0 +1,124 @@
+import { Logger } from '@aws-lambda-powertools/logger';
+
+const logger = new Logger({ serviceName: '{{SERVICE_NAME}}' });
+
+const PCO_BASE_URL = 'https://api.planningcenteronline.com';
+
+interface PcoListResponse<T> {
+  data: T[];
+  included?: unknown[];
+  meta: { total_count: number; count: number };
+  links: { self: string; next?: string };
+}
+
+interface PcoSingleResponse<T> {
+  data: T;
+  included?: unknown[];
+}
+
+interface PcoResource {
+  type: string;
+  id: string;
+  attributes: Record<string, unknown>;
+  relationships?: Record<string, unknown>;
+  links?: Record<string, string>;
+}
+
+// Cache credentials outside handler
+let cachedAuth: string | null = null;
+
+function getAuth(): string {
+  if (cachedAuth) return cachedAuth;
+
+  const appId = process.env.PCO_APP_ID!;
+  const secret = process.env.PCO_SECRET!;
+  cachedAuth = `Basic ${Buffer.from(`${appId}:${secret}`).toString('base64')}`;
+  return cachedAuth;
+}
+
+/**
+ * Make a single request to the PCO API.
+ */
+export async function pcoFetch<T = unknown>(
+  path: string,
+  options: RequestInit = {},
+): Promise<T> {
+  const url = path.startsWith('http') ? path : `${PCO_BASE_URL}${path}`;
+
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      Authorization: getAuth(),
+      'Content-Type': 'application/json',
+      ...options.headers,
+    },
+  });
+
+  if (response.status === 429) {
+    const retryAfter = parseInt(response.headers.get('Retry-After') ?? '20', 10);
+    logger.warn('PCO rate limited, retrying', { retryAfter });
+    await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000));
+    return pcoFetch<T>(path, options);
+  }
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`PCO API ${response.status}: ${body}`);
+  }
+
+  return response.json() as Promise<T>;
+}
+
+/**
+ * Fetch all pages of a PCO list endpoint.
+ */
+export async function pcoFetchAll<T = PcoResource>(path: string): Promise<T[]> {
+  const results: T[] = [];
+  let url: string | null = path.includes('per_page') ? path : `${path}${path.includes('?') ? '&' : '?'}per_page=100`;
+
+  while (url) {
+    const response = await pcoFetch<PcoListResponse<T>>(url);
+    results.push(...response.data);
+    logger.debug('Fetched page', { count: response.data.length, total: results.length });
+
+    url = response.links?.next ?? null;
+  }
+
+  return results;
+}
+
+/**
+ * Fetch a single resource from PCO.
+ */
+export async function pcoGet<T = PcoResource>(path: string): Promise<T> {
+  const response = await pcoFetch<PcoSingleResponse<T>>(path);
+  return response.data;
+}
+
+/**
+ * Create a resource in PCO.
+ */
+export async function pcoCreate<T = PcoResource>(
+  path: string,
+  data: Record<string, unknown>,
+): Promise<T> {
+  const response = await pcoFetch<PcoSingleResponse<T>>(path, {
+    method: 'POST',
+    body: JSON.stringify({ data }),
+  });
+  return response.data;
+}
+
+/**
+ * Update a resource in PCO.
+ */
+export async function pcoUpdate<T = PcoResource>(
+  path: string,
+  data: Record<string, unknown>,
+): Promise<T> {
+  const response = await pcoFetch<PcoSingleResponse<T>>(path, {
+    method: 'PATCH',
+    body: JSON.stringify({ data }),
+  });
+  return response.data;
+}

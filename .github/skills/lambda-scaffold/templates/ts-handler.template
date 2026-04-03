@@ -1,0 +1,23 @@
+import { {{EVENT_TYPE}}, {{RESULT_TYPE}} } from 'aws-lambda';
+import { Logger } from '@aws-lambda-powertools/logger';
+
+const logger = new Logger({ serviceName: '{{SERVICE_NAME}}' });
+
+export async function handler(event: {{EVENT_TYPE}}): Promise<{{RESULT_TYPE}}> {
+  logger.info('Received event', { event });
+
+  try {
+    // TODO: Implement business logic
+
+    return {
+      statusCode: 200,
+      body: JSON.stringify({ message: 'ok' }),
+    };
+  } catch (error) {
+    logger.error('Handler failed', { error });
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: 'Internal server error' }),
+    };
+  }
+}

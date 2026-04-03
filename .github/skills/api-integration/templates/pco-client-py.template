@@ -1,0 +1,74 @@
+import os
+import time
+from typing import Any
+from urllib.parse import urlencode, urlparse, parse_qs, urljoin
+
+import requests
+from aws_lambda_powertools import Logger
+
+logger = Logger(service="{{SERVICE_NAME}}")
+
+PCO_BASE_URL = "https://api.planningcenteronline.com"
+
+# Cache session outside handler for Lambda execution context reuse
+_session: requests.Session | None = None
+
+
+def _get_session() -> requests.Session:
+    global _session
+    if _session is not None:
+        return _session
+
+    _session = requests.Session()
+    _session.auth = (os.environ["PCO_APP_ID"], os.environ["PCO_SECRET"])
+    _session.headers.update({"Content-Type": "application/json"})
+    return _session
+
+
+def pco_fetch(path: str, method: str = "GET", data: dict | None = None) -> dict:
+    """Make a single request to the PCO API with rate limit handling."""
+    session = _get_session()
+    url = path if path.startswith("http") else f"{PCO_BASE_URL}{path}"
+
+    response = session.request(method, url, json=data)
+
+    if response.status_code == 429:
+        retry_after = int(response.headers.get("Retry-After", "20"))
+        logger.warning("PCO rate limited, retrying", extra={"retry_after": retry_after})
+        time.sleep(retry_after)
+        return pco_fetch(path, method, data)
+
+    response.raise_for_status()
+    return response.json()
+
+
+def pco_fetch_all(path: str) -> list[dict[str, Any]]:
+    """Fetch all pages of a PCO list endpoint."""
+    results: list[dict[str, Any]] = []
+    url: str | None = f"{path}{'&' if '?' in path else '?'}per_page=100"
+
+    while url:
+        response = pco_fetch(url)
+        results.extend(response["data"])
+        logger.debug(
+            "Fetched page",
+            extra={"count": len(response["data"]), "total": len(results)},
+        )
+        url = response.get("links", {}).get("next")
+
+    return results
+
+
+def pco_get(path: str) -> dict[str, Any]:
+    """Fetch a single resource from PCO."""
+    return pco_fetch(path)["data"]
+
+
+def pco_create(path: str, data: dict) -> dict[str, Any]:
+    """Create a resource in PCO."""
+    return pco_fetch(path, method="POST", data={"data": data})["data"]
+
+
+def pco_update(path: str, data: dict) -> dict[str, Any]:
+    """Update a resource in PCO."""
+    return pco_fetch(path, method="PATCH", data={"data": data})["data"]

@@ -1,0 +1,60 @@
+terraform {
+  required_version = ">= 1.5"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+
+  backend "s3" {
+    # Configure in terraform.tfvars or via CLI
+    # bucket = "my-terraform-state"
+    # key    = "{{SERVICE_NAME}}/terraform.tfstate"
+    # region = "us-east-1"
+  }
+}
+
+provider "aws" {
+  region = var.aws_region
+
+  default_tags {
+    tags = {
+      Project     = var.project_name
+      Environment = var.environment
+      ManagedBy   = "terraform"
+    }
+  }
+}
+
+# Lambda function
+resource "aws_lambda_function" "main" {
+  function_name = "${var.project_name}-${var.environment}"
+  description   = var.description
+
+  runtime     = var.runtime
+  handler     = var.handler
+  timeout     = var.timeout
+  memory_size = var.memory_size
+
+  filename         = var.lambda_zip_path
+  source_code_hash = filebase64sha256(var.lambda_zip_path)
+
+  role = aws_iam_role.lambda.arn
+
+  environment {
+    variables = var.environment_variables
+  }
+
+  depends_on = [
+    aws_iam_role_policy_attachment.lambda_basic,
+    aws_cloudwatch_log_group.lambda,
+  ]
+}
+
+# CloudWatch Log Group (with retention)
+resource "aws_cloudwatch_log_group" "lambda" {
+  name              = "/aws/lambda/${var.project_name}-${var.environment}"
+  retention_in_days = var.log_retention_days
+}
