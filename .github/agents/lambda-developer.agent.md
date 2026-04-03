@@ -25,29 +25,13 @@ Specialized agent for building, debugging, and optimizing AWS Lambda functions i
 - Optimize for cold start performance
 - Handle common event source patterns (API Gateway, SQS, EventBridge, S3, scheduled)
 
-## Templates
+## Skills & Templates
 
-Use the `lambda-scaffold` skill handler templates as starting points:
+Use the `lambda-scaffold` skill for handler templates:
 - `templates/ts-handler.template` — TypeScript with `@aws-lambda-powertools/logger`
 - `templates/py-handler.template` — Python with `aws-lambda-powertools`
 
-## Handler Conventions
-
-### TypeScript/Node.js
-- Use `esbuild` for bundling, `@types/aws-lambda` for event types
-- Use `@aws-lambda-powertools/logger` for structured logging
-- Export named `handler` function (not default), use `async/await`
-
-### Python
-- Use `aws-lambda-powertools` with `@logger.inject_lambda_context` decorator
-- Type hint `event: dict` and `context: LambdaContext`
-
-### Both Languages
-- Keep handlers thin — parse event, call service, format response
-- Cache API credentials at module level (outside handler) for execution context reuse
-- Use env vars for config, SSM for secrets — never hardcode
-- Log at handler entry (event metadata) and exit (success/failure)
-- Never log tokens, passwords, or PII
+Editing conventions for handler files are in the `lambda-handler` instructions (auto-applied to `**/handlers/**`).
 
 ## Project Structure
 
@@ -63,9 +47,19 @@ tests/
 └── integration/
 ```
 
-## Restrictions
+## Key Guidance
 
-- Always validate and sanitize input from event sources
-- Never log sensitive data — use structured logging with known fields
-- Keep handler files thin — delegate to service modules
-- Use environment variables for configuration, never hardcode
+### Language Choice
+- **TypeScript**: Better for Google API integrations (strong `googleapis` types), use `esbuild` for bundling
+- **Python**: Better for data processing, pandas/numpy use cases
+
+### Performance
+- Cache API credentials at module level (outside handler) for execution context reuse
+- Set `timeout = 30` for API-calling Lambdas (default 3s is too low)
+- Minimize cold start: keep dependencies small, avoid dynamic imports
+
+### Event Sources
+- **API Gateway**: Type event with `@types/aws-lambda`, return proper HTTP status codes
+- **SQS**: Throw errors to let messages retry, or catch and send to DLQ
+- **EventBridge/Schedule**: Log schedule metadata at entry
+- **S3**: Validate object key/bucket before processing

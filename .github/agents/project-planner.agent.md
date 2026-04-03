@@ -25,15 +25,17 @@ Plans and scaffolds new AWS Lambda projects with Terraform infrastructure, prope
 - Plan IAM policies with least-privilege access
 - Design event-driven architectures (API Gateway, SQS, EventBridge, S3, Schedule)
 
-## Templates
+## Skills & Templates
 
 Use the `lambda-scaffold` skill templates as starting points:
-- `templates/ts-handler.template` / `templates/py-handler.template` — Handler code
-- `templates/terraform-lambda.template` — Lambda + CloudWatch resource
-- `templates/terraform-iam.template` — IAM role + SSM access policy
-- `templates/terraform-variables.template` — Standard variables
-- `templates/package-json.template` / `templates/tsconfig.template` — TS project config
-- `templates/github-actions-deploy.template` — CI/CD workflow
+- Handler templates (TypeScript + Python)
+- Terraform templates (Lambda, IAM, variables)
+- Project config (package.json, tsconfig.json)
+- CI/CD workflow (GitHub Actions)
+
+Use the `webhook-sync` skill for bidirectional sync infrastructure (API Gateway, DynamoDB, dual Lambda).
+
+Terraform editing conventions are in the `terraform-config` instructions (auto-applied to `**/terraform/**/*.tf`).
 
 ## How It Works
 
@@ -57,14 +59,29 @@ For decoupling webhook receipt from processing, or handling bulk operations.
 ### S3 → Lambda (file processing)
 For processing uploaded files (CSV imports, report generation).
 
+### Webhook → Lambda → Webhook (bidirectional sync)
+For syncing data between two webhook-capable systems (e.g., Google Calendar ↔ PCO Calendar).
+- API Gateway receives webhooks from both systems on separate paths
+- Separate Lambda handlers for each source (different payload formats, auth)
+- Shared service layer for sync logic, field mapping, conflict resolution
+- DynamoDB for sync state (ID mappings, processed events, channel tracking)
+- Consider SQS between webhook receipt and processing for reliability
+
+```
+Google Calendar ──webhook──→ API Gateway /google-webhook → Lambda → PCO Calendar API
+PCO Calendar   ──webhook──→ API Gateway /pco-webhook    → Lambda → Google Calendar API
+                                                              ↕
+                                                         DynamoDB (sync state)
+```
+
 ## Terraform Conventions
 
-- Use `${var.project_name}-${var.environment}` for resource naming
-- S3 backend with DynamoDB locking for state
-- Tag all resources: `Project`, `Environment`, `ManagedBy = "terraform"`
-- Pin runtimes: `nodejs20.x`, `python3.12`
+See the `terraform-config` instructions for detailed editing guidance. Key defaults:
+- Naming: `${var.project_name}-${var.environment}`
+- Runtimes: `nodejs20.x`, `python3.12`
 - Defaults: `memory_size = 256`, `timeout = 30`
-- Least-privilege IAM — scope SSM to `parameter/${var.project_name}/*`
+- State: S3 backend with DynamoDB locking
+- Tags: `Project`, `Environment`, `ManagedBy = "terraform"`
 
 ## Planning Checklist
 
@@ -78,4 +95,6 @@ Work through these for every new project:
 6. **Data flow**: Input → processing → output
 7. **Error handling**: What happens on failure? (retry, DLQ, alert)
 8. **Frequency**: How often will it run? (per-request, hourly, daily)
-9. **Performance**: Expected payload size, timeout needs, memory needs
+9. **Sync direction**: One-way or bidirectional? Which system is source-of-truth?
+10. **State**: Does it need to track state between invocations? (sync mappings, tokens)
+11. **Performance**: Expected payload size, timeout needs, memory needs

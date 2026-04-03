@@ -34,21 +34,31 @@ A centralized repository for AI agents, skills, prompts, and instructions for Gi
 | **API Client** | `**/clients/**/*.{ts,js,py}` |
 | **Terraform Config** | `**/terraform/**/*.tf` |
 
-## Symlink Setup
+## Setup
 
-Link this repo's customizations into any project:
+### Global Install (recommended)
+
+Run the symlink script with no arguments to make everything available in **all** VS Code workspaces:
 
 ```bash
-# Link into a project
-./scripts/symlink.sh /path/to/your-lambda-project
-
-# Remove symlinks
-./scripts/symlink.sh /path/to/your-lambda-project --remove
+./scripts/symlink.sh
 ```
 
-This creates symlinks for `agents/`, `skills/`, `prompts/`, and `instructions/` inside the target repo's `.github/` folder.
+This symlinks agents, skills, prompts, and instructions into your VS Code user-level prompts folder. After restarting VS Code, they're available everywhere — no per-repo setup needed.
 
-After symlinking, restart VS Code in the target project — Copilot will discover the agents, skills, and prompts automatically.
+To remove:
+```bash
+./scripts/symlink.sh --remove
+```
+
+### Per-Repo Install
+
+To link into a specific repo's `.github/` instead:
+
+```bash
+./scripts/symlink.sh /path/to/your-lambda-project
+./scripts/symlink.sh /path/to/your-lambda-project --remove
+```
 
 ### Example Workflow
 

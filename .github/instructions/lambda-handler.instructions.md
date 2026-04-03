@@ -8,11 +8,6 @@ applyTo: "**/handlers/**/*.{ts,js,py}"
 
 Guidance for Lambda handler entry point files.
 
-## Apply To
-
-- Files matching: `**/handlers/**/*.{ts,js,py}`
-- When: Creating or editing Lambda handler functions
-
 ## Guidance
 
 ### Structure

@@ -8,11 +8,6 @@ applyTo: "**/clients/**/*.{ts,js,py}"
 
 Guidance for API client modules that interact with Google APIs or Planning Center Online.
 
-## Apply To
-
-- Files matching: `**/clients/**/*.{ts,js,py}`
-- When: Creating or editing API client wrappers
-
 ## Guidance
 
 ### Authentication

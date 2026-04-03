@@ -14,7 +14,6 @@ Patterns and templates for building reliable REST API integrations with Google W
 - Implementing OAuth2 or service account authentication
 - Handling pagination for large data sets
 - Implementing rate limiting and retry logic
-- Processing webhooks from PCO or Google
 
 ## What It Does
 
@@ -22,8 +21,7 @@ Provides tested patterns for:
 1. Authenticated API clients (Google service accounts, PCO tokens)
 2. Pagination helpers that work within Lambda time limits
 3. Rate-limited request queues
-4. Webhook signature verification
-5. Data transformation between API formats
+4. Data transformation between API formats
 
 ## Steps
 
@@ -90,3 +88,5 @@ A: PCO allows 100 requests per 20 seconds. Implement a request queue with delays
 
 **Q: Lambda times out during pagination?**
 A: Use `per_page=100` (PCO max), process in batches, or split work across multiple invocations via SQS.
+
+For webhook integration patterns (Google push notifications, PCO webhook subscriptions), see the `webhook-sync` skill.

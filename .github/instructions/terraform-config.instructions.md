@@ -8,11 +8,6 @@ applyTo: "**/terraform/**/*.tf"
 
 Guidance for Terraform files managing AWS Lambda infrastructure.
 
-## Apply To
-
-- Files matching: `**/terraform/**/*.tf`
-- When: Creating or editing Terraform infrastructure for Lambdas
-
 ## Guidance
 
 ### File Organization

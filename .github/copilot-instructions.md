@@ -41,6 +41,14 @@ Central hub for AI agents, skills, prompts, and instructions. This repo is desig
 - Always paginate — never assume single-page responses
 - Mock at the HTTP/SDK boundary in tests
 
+### Webhook & Sync Rules
+- Always verify webhook signatures before processing (Google: channel token, PCO: HMAC-SHA256)
+- Return 200 to webhook senders immediately — never leak errors via 4xx/5xx responses
+- Process webhooks idempotently — track delivery IDs in DynamoDB with TTL
+- Use canonical types for cross-system data — never pass raw API formats through sync logic
+- Log all sync decisions (direction, conflict resolution, IDs) at info level
+- Use DynamoDB for sync state (ID mappings, processed events, sync tokens)
+
 ## Available Customizations
 
 Check `.github/AGENTS.md` for the full registry of agents, skills, prompts, and instructions.
@@ -49,5 +57,6 @@ Check `.github/AGENTS.md` for the full registry of agents, skills, prompts, and 
 
 To use these customizations in another repo:
 ```bash
-./scripts/symlink.sh /path/to/your-project
+./scripts/symlink.sh                    # Global: available in all workspaces
+./scripts/symlink.sh /path/to/project   # Per-repo: link into specific project
 ```

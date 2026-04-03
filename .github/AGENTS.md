@@ -1,114 +1,73 @@
 # Available Agents & Skills
 
-Registry of all custom agents, skills, prompts, and instructions in this repository. This repo is designed to be symlinked into other project repos via `scripts/symlink.sh`.
+Registry of all customizations in this repository. Designed to be symlinked into project repos via `scripts/symlink.sh`.
 
 ---
 
 ## Agents
 
-### Lambda Developer
-- **File**: `.github/agents/lambda-developer.agent.md`
-- **Use when**: Building AWS Lambda functions, creating handlers, debugging Lambda execution, optimizing cold starts
-- **Languages**: TypeScript, Python
-- **Key Features**: Handler scaffolding, structured logging, error handling patterns, event source typing
-- **Status**: active
-
-### API Integrator
-- **File**: `.github/agents/api-integrator.agent.md`
-- **Use when**: Integrating with Google APIs (Sheets, Calendar, Drive, Admin, Gmail) or Planning Center Online API
-- **Key Features**: OAuth2/service account auth, PCO pagination, rate limiting, webhook verification
-- **Status**: active
-
-### Project Planner
-- **File**: `.github/agents/project-planner.agent.md`
-- **Use when**: Planning new Lambda projects, designing architecture, setting up Terraform infrastructure
-- **Key Features**: Project scaffolding, Terraform patterns, IAM policies, CI/CD setup
-- **Status**: active
+| Agent | File | Use When |
+|-------|------|----------|
+| **Lambda Developer** | `agents/lambda-developer.agent.md` | Building Lambda handlers, debugging execution, optimizing cold starts |
+| **API Integrator** | `agents/api-integrator.agent.md` | Google APIs, PCO API, OAuth2, service accounts, webhooks |
+| **Project Planner** | `agents/project-planner.agent.md` | Architecture design, Terraform infrastructure, project scaffolding |
+| **Sync Engine** | `agents/sync-engine.agent.md` | Bidirectional sync, conflict resolution, field mapping, idempotency |
 
 ---
 
 ## Skills
 
-### Lambda Scaffold
-- **File**: `.github/skills/lambda-scaffold/SKILL.md`
-- **Use for**: Scaffolding new Lambda projects with handler, Terraform, tests, and CI/CD
-- **Includes**:
-  - TypeScript and Python handler templates
-  - Terraform templates (Lambda, IAM, variables)
-  - GitHub Actions deploy workflow template
-  - package.json and tsconfig.json templates
-- **Status**: active
-
-### API Integration
-- **File**: `.github/skills/api-integration/SKILL.md`
-- **Use for**: Building reliable REST API clients for Google and PCO APIs
-- **Includes**:
-  - Google API client templates (TypeScript + Python)
-  - PCO API client templates (TypeScript + Python)
-  - Pagination, rate limiting, and auth patterns
-- **Status**: active
+| Skill | File | Use For |
+|-------|------|---------|
+| **Lambda Scaffold** | `skills/lambda-scaffold/SKILL.md` | Scaffolding new Lambda projects (handler, Terraform, CI/CD templates) |
+| **API Integration** | `skills/api-integration/SKILL.md` | REST API clients for Google & PCO (auth, pagination, rate limiting templates) |
+| **Webhook Sync** | `skills/webhook-sync/SKILL.md` | Webhook-driven bidirectional sync (handlers, types, sync service, Terraform templates) |
 
 ---
 
 ## Prompts
 
-### New Lambda
-- **File**: `.github/prompts/new-lambda.prompt.md`
-- **Use for**: Quick-scaffolding a new Lambda project from scratch
-- **Params**: name, description, language, trigger
-
-### PCO Endpoint
-- **File**: `.github/prompts/pco-endpoint.prompt.md`
-- **Use for**: Generating typed client code for a specific PCO API endpoint
-- **Params**: product, resource, operations, language
-
-### Google API Client
-- **File**: `.github/prompts/google-api-client.prompt.md`
-- **Use for**: Generating authenticated Google API client code for Lambda
-- **Params**: api, operations, language, auth
-
-### Add Tests
-- **File**: `.github/prompts/add-tests.prompt.md`
-- **Use for**: Generating unit tests for handlers or API clients
-- **Params**: file, framework
+| Prompt | File | Params |
+|--------|------|--------|
+| **New Lambda** | `prompts/new-lambda.prompt.md` | name, description, language, trigger |
+| **PCO Endpoint** | `prompts/pco-endpoint.prompt.md` | product, resource, operations, language |
+| **Google API Client** | `prompts/google-api-client.prompt.md` | api, operations, language, auth |
+| **Add Tests** | `prompts/add-tests.prompt.md` | file, framework |
+| **Webhook Handler** | `prompts/webhook-handler.prompt.md` | source, language, events |
+| **Calendar Sync** | `prompts/calendar-sync.prompt.md` | language, conflict-strategy, async |
 
 ---
 
-## Instructions (File-Scoped)
+## Instructions (Auto-Applied by File Pattern)
 
-### Lambda Handler
-- **File**: `.github/instructions/lambda-handler.instructions.md`
-- **Applies to**: `**/handlers/**/*.{ts,js,py}`
-- **Guidance**: Handler structure, error handling, logging, env vars
+| Instruction | File | Applies To |
+|------------|------|------------|
+| **Lambda Handler** | `instructions/lambda-handler.instructions.md` | `**/handlers/**/*.{ts,js,py}` |
+| **API Client** | `instructions/api-client.instructions.md` | `**/clients/**/*.{ts,js,py}` |
+| **Terraform Config** | `instructions/terraform-config.instructions.md` | `**/terraform/**/*.tf` |
+| **Webhook Handler** | `instructions/webhook-handler.instructions.md` | `**/handlers/**/*webhook*.*`, `**/handlers/**/*hook*.*` |
+| **Sync Service** | `instructions/sync-service.instructions.md` | `**/services/**/*sync*.*`, `**/services/**/*transform*.*`, `**/services/**/*map*.*` |
 
-### API Client
-- **File**: `.github/instructions/api-client.instructions.md`
-- **Applies to**: `**/clients/**/*.{ts,js,py}`
-- **Guidance**: Auth caching, HTTP best practices, pagination, error handling
+---
 
-### Terraform Config
-- **File**: `.github/instructions/terraform-config.instructions.md`
-- **Applies to**: `**/terraform/**/*.tf`
-- **Guidance**: File organization, naming, tags, IAM least-privilege, state management
+## Hooks
+
+| Hook | File | Event | Purpose |
+|------|------|-------|---------|
+| **Validate Webhook Security** | `hooks/validate-webhook-security.json` | PostToolUse | Warns when webhook handlers lack signature verification |
 
 ---
 
 ## Workspace Instructions
 
-### Global Conventions
-- **File**: `.github/copilot-instructions.md`
-- **Applies to**: Everything in this workspace
+- **File**: `copilot-instructions.md` — Always-on global conventions
 
 ---
 
 ## Setup
 
-To link these customizations into another repo:
 ```bash
-./scripts/symlink.sh /path/to/your-lambda-project
-```
-
-To remove:
-```bash
-./scripts/symlink.sh /path/to/your-lambda-project --remove
+./scripts/symlink.sh /path/to/repo           # Link into a repo
+./scripts/symlink.sh /path/to/repo --remove   # Remove links
+./scripts/symlink.sh                           # Link globally (all workspaces)
 ```
