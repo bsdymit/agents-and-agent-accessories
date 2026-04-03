@@ -1,0 +1,294 @@
+# Terraform — Webhook Sync Infrastructure
+# API Gateway + Lambda handlers + DynamoDB tables + IAM
+
+# --- Variables ---
+
+variable "project_name" {
+  description = "Project name used for resource naming"
+  type        = string
+  default     = "church-calendar-sync"
+}
+
+variable "environment" {
+  description = "Deployment environment"
+  type        = string
+  default     = "dev"
+}
+
+variable "google_calendar_id" {
+  description = "Google Calendar ID to watch for changes"
+  type        = string
+}
+
+# --- API Gateway ---
+
+resource "aws_apigatewayv2_api" "webhook_api" {
+  name          = "${var.project_name}-${var.environment}"
+  protocol_type = "HTTP"
+
+  tags = {
+    Project     = var.project_name
+    Environment = var.environment
+    ManagedBy   = "terraform"
+  }
+}
+
+resource "aws_apigatewayv2_stage" "default" {
+  api_id      = aws_apigatewayv2_api.webhook_api.id
+  name        = "$default"
+  auto_deploy = true
+}
+
+# Google webhook route
+resource "aws_apigatewayv2_route" "google_webhook" {
+  api_id    = aws_apigatewayv2_api.webhook_api.id
+  route_key = "POST /google-webhook"
+  target    = "integrations/${aws_apigatewayv2_integration.google_webhook.id}"
+}
+
+resource "aws_apigatewayv2_integration" "google_webhook" {
+  api_id                 = aws_apigatewayv2_api.webhook_api.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.google_webhook.invoke_arn
+  payload_format_version = "2.0"
+}
+
+# PCO webhook route
+resource "aws_apigatewayv2_route" "pco_webhook" {
+  api_id    = aws_apigatewayv2_api.webhook_api.id
+  route_key = "POST /pco-webhook"
+  target    = "integrations/${aws_apigatewayv2_integration.pco_webhook.id}"
+}
+
+resource "aws_apigatewayv2_integration" "pco_webhook" {
+  api_id                 = aws_apigatewayv2_api.webhook_api.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.pco_webhook.invoke_arn
+  payload_format_version = "2.0"
+}
+
+# --- Lambda Functions ---
+
+resource "aws_lambda_function" "google_webhook" {
+  function_name    = "${var.project_name}-google-webhook-${var.environment}"
+  runtime          = "nodejs20.x"
+  handler          = "google-webhook-handler.handler"
+  memory_size      = 256
+  timeout          = 30
+  filename         = "${path.module}/../dist/google-webhook.zip"
+  source_code_hash = filebase64sha256("${path.module}/../dist/google-webhook.zip")
+  role             = aws_iam_role.lambda_role.arn
+
+  environment {
+    variables = {
+      GOOGLE_SA_PARAM      = "/${var.project_name}/google-service-account"
+      GOOGLE_CALENDAR_ID   = var.google_calendar_id
+      GOOGLE_CHANNEL_TOKEN = "/${var.project_name}/google-channel-token"
+      IDEMPOTENCY_TABLE    = aws_dynamodb_table.processed_events.name
+      SYNC_MAPPINGS_TABLE  = aws_dynamodb_table.sync_mappings.name
+      PCO_APP_ID_PARAM     = "/${var.project_name}/pco-app-id"
+      PCO_SECRET_PARAM     = "/${var.project_name}/pco-secret"
+    }
+  }
+
+  tags = {
+    Project     = var.project_name
+    Environment = var.environment
+    ManagedBy   = "terraform"
+  }
+}
+
+resource "aws_lambda_function" "pco_webhook" {
+  function_name    = "${var.project_name}-pco-webhook-${var.environment}"
+  runtime          = "nodejs20.x"
+  handler          = "pco-webhook-handler.handler"
+  memory_size      = 256
+  timeout          = 30
+  filename         = "${path.module}/../dist/pco-webhook.zip"
+  source_code_hash = filebase64sha256("${path.module}/../dist/pco-webhook.zip")
+  role             = aws_iam_role.lambda_role.arn
+
+  environment {
+    variables = {
+      PCO_APP_ID_PARAM     = "/${var.project_name}/pco-app-id"
+      PCO_SECRET_PARAM     = "/${var.project_name}/pco-secret"
+      PCO_WEBHOOK_SECRET   = "/${var.project_name}/pco-webhook-secret"
+      GOOGLE_SA_PARAM      = "/${var.project_name}/google-service-account"
+      GOOGLE_CALENDAR_ID   = var.google_calendar_id
+      IDEMPOTENCY_TABLE    = aws_dynamodb_table.processed_events.name
+      SYNC_MAPPINGS_TABLE  = aws_dynamodb_table.sync_mappings.name
+    }
+  }
+
+  tags = {
+    Project     = var.project_name
+    Environment = var.environment
+    ManagedBy   = "terraform"
+  }
+}
+
+# Lambda permissions for API Gateway
+resource "aws_lambda_permission" "google_webhook" {
+  statement_id  = "AllowAPIGateway"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.google_webhook.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.webhook_api.execution_arn}/*/*"
+}
+
+resource "aws_lambda_permission" "pco_webhook" {
+  statement_id  = "AllowAPIGateway"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.pco_webhook.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.webhook_api.execution_arn}/*/*"
+}
+
+# CloudWatch log groups
+resource "aws_cloudwatch_log_group" "google_webhook" {
+  name              = "/aws/lambda/${aws_lambda_function.google_webhook.function_name}"
+  retention_in_days = 14
+}
+
+resource "aws_cloudwatch_log_group" "pco_webhook" {
+  name              = "/aws/lambda/${aws_lambda_function.pco_webhook.function_name}"
+  retention_in_days = 14
+}
+
+# --- DynamoDB Tables ---
+
+resource "aws_dynamodb_table" "sync_mappings" {
+  name         = "${var.project_name}-sync-mappings-${var.environment}"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "googleEventId"
+
+  attribute {
+    name = "googleEventId"
+    type = "S"
+  }
+
+  attribute {
+    name = "pcoEventId"
+    type = "S"
+  }
+
+  global_secondary_index {
+    name            = "pco-event-index"
+    hash_key        = "pcoEventId"
+    projection_type = "ALL"
+  }
+
+  tags = {
+    Project     = var.project_name
+    Environment = var.environment
+    ManagedBy   = "terraform"
+  }
+}
+
+resource "aws_dynamodb_table" "processed_events" {
+  name         = "${var.project_name}-processed-events-${var.environment}"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "deliveryId"
+
+  attribute {
+    name = "deliveryId"
+    type = "S"
+  }
+
+  ttl {
+    attribute_name = "ttl"
+    enabled        = true
+  }
+
+  tags = {
+    Project     = var.project_name
+    Environment = var.environment
+    ManagedBy   = "terraform"
+  }
+}
+
+# --- IAM ---
+
+resource "aws_iam_role" "lambda_role" {
+  name = "${var.project_name}-lambda-${var.environment}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = {
+        Service = "lambda.amazonaws.com"
+      }
+    }]
+  })
+
+  tags = {
+    Project     = var.project_name
+    Environment = var.environment
+    ManagedBy   = "terraform"
+  }
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_basic" {
+  role       = aws_iam_role.lambda_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy" "lambda_ssm" {
+  name = "ssm-access"
+  role = aws_iam_role.lambda_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "ssm:GetParameter",
+        "ssm:GetParameters"
+      ]
+      Resource = "arn:aws:ssm:*:*:parameter/${var.project_name}/*"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "lambda_dynamodb" {
+  name = "dynamodb-access"
+  role = aws_iam_role.lambda_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:Query"
+      ]
+      Resource = [
+        aws_dynamodb_table.sync_mappings.arn,
+        "${aws_dynamodb_table.sync_mappings.arn}/index/*",
+        aws_dynamodb_table.processed_events.arn
+      ]
+    }]
+  })
+}
+
+# --- Outputs ---
+
+output "api_url" {
+  description = "API Gateway URL for webhook endpoints"
+  value       = aws_apigatewayv2_api.webhook_api.api_endpoint
+}
+
+output "google_webhook_url" {
+  description = "Full URL for Google Calendar webhook"
+  value       = "${aws_apigatewayv2_api.webhook_api.api_endpoint}/google-webhook"
+}
+
+output "pco_webhook_url" {
+  description = "Full URL for PCO Calendar webhook"
+  value       = "${aws_apigatewayv2_api.webhook_api.api_endpoint}/pco-webhook"
+}

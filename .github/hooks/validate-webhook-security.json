@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "type": "command",
+        "command": "bash .github/hooks/validate-webhook-security.sh",
+        "timeout": 10
+      }
+    ]
+  }
+}

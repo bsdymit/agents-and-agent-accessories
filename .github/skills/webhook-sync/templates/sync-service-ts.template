@@ -1,0 +1,205 @@
+// Sync Service — orchestrates bidirectional calendar sync
+// Operates on canonical CalendarEvent types, delegates API calls to clients
+
+import { Logger } from '@aws-lambda-powertools/logger';
+import {
+  CalendarEvent,
+  SyncMapping,
+  SyncOperation,
+  ConflictStrategy,
+} from '../types/calendar-types';
+import { GoogleCalendarClient } from '../clients/google-calendar-client';
+import { PcoCalendarClient } from '../clients/pco-calendar-client';
+import { SyncStateStore } from '../utils/sync-state-store';
+import {
+  googleEventToCanonical,
+  canonicalToGoogleEvent,
+  canonicalToPcoEvent,
+} from './field-mapper';
+
+const logger = new Logger({ serviceName: '{{PROJECT_NAME}}-sync' });
+
+export class SyncService {
+  constructor(
+    private googleClient: GoogleCalendarClient,
+    private pcoClient: PcoCalendarClient,
+    private stateStore: SyncStateStore,
+    private conflictStrategy: ConflictStrategy = 'last-write-wins',
+  ) {}
+
+  /**
+   * Process incremental changes from Google Calendar.
+   * Called when a Google push notification is received.
+   */
+  async processGoogleChanges(channelId: string): Promise<void> {
+    // Retrieve stored sync token for this channel
+    const syncToken = await this.stateStore.getSyncToken(channelId);
+
+    // Fetch incremental changes from Google
+    const { events, nextSyncToken } = await this.googleClient.listChanges(syncToken);
+
+    logger.info('Google changes fetched', {
+      channelId,
+      changeCount: events.length,
+    });
+
+    for (const googleEvent of events) {
+      const canonical = googleEventToCanonical(googleEvent);
+      const mapping = await this.stateStore.getMappingByGoogleId(googleEvent.id);
+
+      if (googleEvent.status === 'cancelled') {
+        // Handle delete
+        if (mapping) {
+          await this.pcoClient.deleteEvent(mapping.pcoEventId);
+          await this.stateStore.deleteMapping(mapping.googleEventId);
+          logger.info('Deleted PCO event', {
+            googleId: googleEvent.id,
+            pcoId: mapping.pcoEventId,
+          });
+        }
+        continue;
+      }
+
+      if (!mapping) {
+        // New event — create in PCO
+        const pcoEvent = canonicalToPcoEvent(canonical);
+        const pcoId = await this.pcoClient.createEvent(pcoEvent);
+        await this.stateStore.createMapping({
+          googleEventId: googleEvent.id,
+          pcoEventId: pcoId,
+          googleUpdatedAt: canonical.updatedAt,
+          pcoUpdatedAt: new Date().toISOString(),
+          lastSyncedAt: new Date().toISOString(),
+          lastSyncDirection: 'google_to_pco',
+        });
+        logger.info('Created PCO event from Google', {
+          googleId: googleEvent.id,
+          pcoId,
+        });
+      } else {
+        // Existing event — check for conflicts and update
+        const shouldSync = await this.resolveConflict(
+          canonical,
+          mapping,
+          'google',
+        );
+
+        if (shouldSync) {
+          const pcoEvent = canonicalToPcoEvent(canonical);
+          await this.pcoClient.updateEvent(mapping.pcoEventId, pcoEvent);
+          await this.stateStore.updateMapping(mapping.googleEventId, {
+            googleUpdatedAt: canonical.updatedAt,
+            lastSyncedAt: new Date().toISOString(),
+            lastSyncDirection: 'google_to_pco',
+          });
+          logger.info('Updated PCO event from Google', {
+            googleId: googleEvent.id,
+            pcoId: mapping.pcoEventId,
+          });
+        }
+      }
+    }
+
+    // Store updated sync token
+    await this.stateStore.setSyncToken(channelId, nextSyncToken);
+  }
+
+  /**
+   * Handle a new event created in PCO.
+   */
+  async handlePcoEventCreated(
+    canonical: CalendarEvent,
+    pcoEventId: string,
+  ): Promise<void> {
+    const googleEvent = canonicalToGoogleEvent(canonical);
+    const googleId = await this.googleClient.createEvent(googleEvent);
+    await this.stateStore.createMapping({
+      googleEventId: googleId,
+      pcoEventId,
+      googleUpdatedAt: new Date().toISOString(),
+      pcoUpdatedAt: canonical.updatedAt,
+      lastSyncedAt: new Date().toISOString(),
+      lastSyncDirection: 'pco_to_google',
+    });
+    logger.info('Created Google event from PCO', { pcoId: pcoEventId, googleId });
+  }
+
+  /**
+   * Handle an event updated in PCO.
+   */
+  async handlePcoEventUpdated(
+    canonical: CalendarEvent,
+    pcoEventId: string,
+  ): Promise<void> {
+    const mapping = await this.stateStore.getMappingByPcoId(pcoEventId);
+    if (!mapping) {
+      logger.warn('No mapping found for PCO event — treating as new', { pcoEventId });
+      return this.handlePcoEventCreated(canonical, pcoEventId);
+    }
+
+    const shouldSync = await this.resolveConflict(canonical, mapping, 'pco');
+    if (shouldSync) {
+      const googleEvent = canonicalToGoogleEvent(canonical);
+      await this.googleClient.updateEvent(mapping.googleEventId, googleEvent);
+      await this.stateStore.updateMapping(mapping.googleEventId, {
+        pcoUpdatedAt: canonical.updatedAt,
+        lastSyncedAt: new Date().toISOString(),
+        lastSyncDirection: 'pco_to_google',
+      });
+      logger.info('Updated Google event from PCO', {
+        pcoId: pcoEventId,
+        googleId: mapping.googleEventId,
+      });
+    }
+  }
+
+  /**
+   * Handle an event destroyed in PCO.
+   */
+  async handlePcoEventDestroyed(pcoEventId: string): Promise<void> {
+    const mapping = await this.stateStore.getMappingByPcoId(pcoEventId);
+    if (!mapping) {
+      logger.info('No mapping for destroyed PCO event — nothing to delete', { pcoEventId });
+      return;
+    }
+
+    await this.googleClient.deleteEvent(mapping.googleEventId);
+    await this.stateStore.deleteMapping(mapping.googleEventId);
+    logger.info('Deleted Google event from PCO delete', {
+      pcoId: pcoEventId,
+      googleId: mapping.googleEventId,
+    });
+  }
+
+  /**
+   * Determine whether a change should be synced based on conflict strategy.
+   */
+  private async resolveConflict(
+    incomingEvent: CalendarEvent,
+    mapping: SyncMapping,
+    source: 'google' | 'pco',
+  ): Promise<boolean> {
+    switch (this.conflictStrategy) {
+      case 'google-wins':
+        return source === 'google';
+
+      case 'pco-wins':
+        return source === 'pco';
+
+      case 'last-write-wins':
+      default: {
+        const incomingTime = new Date(incomingEvent.updatedAt).getTime();
+        const lastSyncTime = new Date(mapping.lastSyncedAt).getTime();
+        const shouldSync = incomingTime > lastSyncTime;
+        if (!shouldSync) {
+          logger.info('Skipping sync — incoming event is older than last sync', {
+            source,
+            incomingUpdated: incomingEvent.updatedAt,
+            lastSynced: mapping.lastSyncedAt,
+          });
+        }
+        return shouldSync;
+      }
+    }
+  }
+}

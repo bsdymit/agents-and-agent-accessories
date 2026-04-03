@@ -1,0 +1,93 @@
+// PCO Calendar Webhook Handler
+// Receives webhook events from Planning Center Online Calendar
+
+import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
+import { Logger } from '@aws-lambda-powertools/logger';
+import { createHmac, timingSafeEqual } from 'crypto';
+import { SyncService } from '../services/sync-service';
+import { IdempotencyStore } from '../utils/idempotency-store';
+import { pcoPayloadToCanonical } from '../services/field-mapper';
+
+const logger = new Logger({ serviceName: '{{PROJECT_NAME}}-pco-webhook' });
+
+let syncService: SyncService;
+let idempotencyStore: IdempotencyStore;
+
+function getServices(): { syncService: SyncService; idempotencyStore: IdempotencyStore } {
+  if (!syncService) {
+    syncService = new SyncService(/* inject dependencies */);
+  }
+  if (!idempotencyStore) {
+    idempotencyStore = new IdempotencyStore(process.env.IDEMPOTENCY_TABLE!);
+  }
+  return { syncService, idempotencyStore };
+}
+
+function verifyPcoSignature(body: string, signature: string, secret: string): boolean {
+  const expected = createHmac('sha256', secret).update(body).digest('hex');
+  try {
+    return timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+  } catch {
+    return false;
+  }
+}
+
+export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+  logger.info('PCO webhook received', {
+    eventType: event.headers['x-pco-webhooks-event'],
+  });
+
+  // 1. Verify HMAC-SHA256 signature
+  const signature = event.headers['x-pco-webhooks-authenticity'];
+  if (!signature || !verifyPcoSignature(event.body || '', signature, process.env.PCO_WEBHOOK_SECRET!)) {
+    logger.warn('Invalid PCO webhook signature');
+    return { statusCode: 200, body: '' }; // Return 200 to not leak info
+  }
+
+  // 2. Parse payload
+  const payload = JSON.parse(event.body || '{}');
+  const eventType = event.headers['x-pco-webhooks-event']; // e.g., calendar.event.created
+  const deliveryId = payload.meta?.delivery_id || `pco-${Date.now()}`;
+
+  logger.info('PCO webhook verified', { eventType, deliveryId });
+
+  // 3. Check idempotency
+  const { syncService: svc, idempotencyStore: store } = getServices();
+
+  if (await store.isProcessed(deliveryId)) {
+    logger.info('Duplicate webhook — already processed', { deliveryId });
+    return { statusCode: 200, body: '' };
+  }
+
+  try {
+    // 4. Extract action from event type
+    const parts = eventType?.split('.') || [];
+    const action = parts[parts.length - 1]; // created, updated, destroyed
+
+    // 5. Map PCO resource to canonical format and sync
+    const canonicalEvent = pcoPayloadToCanonical(payload.data);
+
+    switch (action) {
+      case 'created':
+        await svc.handlePcoEventCreated(canonicalEvent, payload.data.id);
+        break;
+      case 'updated':
+        await svc.handlePcoEventUpdated(canonicalEvent, payload.data.id);
+        break;
+      case 'destroyed':
+        await svc.handlePcoEventDestroyed(payload.data.id);
+        break;
+      default:
+        logger.warn('Unknown PCO webhook action', { action, eventType });
+    }
+
+    // 6. Mark as processed
+    await store.markProcessed(deliveryId);
+
+    logger.info('PCO webhook processed successfully', { deliveryId, action });
+    return { statusCode: 200, body: '' };
+  } catch (error) {
+    logger.error('Failed to process PCO webhook', { error, deliveryId });
+    return { statusCode: 200, body: '' };
+  }
+}

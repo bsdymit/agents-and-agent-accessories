@@ -1,0 +1,79 @@
+// Google Calendar Webhook Handler
+// Receives push notifications from Google Calendar and triggers sync
+
+import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
+import { Logger } from '@aws-lambda-powertools/logger';
+import { SyncService } from '../services/sync-service';
+import { GoogleCalendarClient } from '../clients/google-calendar-client';
+import { IdempotencyStore } from '../utils/idempotency-store';
+
+const logger = new Logger({ serviceName: '{{PROJECT_NAME}}-google-webhook' });
+
+// Cache clients outside handler for execution context reuse
+let syncService: SyncService;
+let idempotencyStore: IdempotencyStore;
+
+function getServices(): { syncService: SyncService; idempotencyStore: IdempotencyStore } {
+  if (!syncService) {
+    syncService = new SyncService(/* inject dependencies */);
+  }
+  if (!idempotencyStore) {
+    idempotencyStore = new IdempotencyStore(process.env.IDEMPOTENCY_TABLE!);
+  }
+  return { syncService, idempotencyStore };
+}
+
+export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+  logger.info('Google Calendar webhook received', {
+    channelId: event.headers['x-goog-channel-id'],
+    resourceState: event.headers['x-goog-resource-state'],
+    messageNumber: event.headers['x-goog-message-number'],
+  });
+
+  // 1. Verify webhook authenticity
+  const channelToken = event.headers['x-goog-channel-token'];
+  if (channelToken !== process.env.GOOGLE_CHANNEL_TOKEN) {
+    logger.warn('Invalid channel token');
+    return { statusCode: 200, body: '' }; // Return 200 to not leak info
+  }
+
+  // 2. Check resource state
+  const resourceState = event.headers['x-goog-resource-state'];
+
+  if (resourceState === 'sync') {
+    logger.info('Sync notification received — channel confirmed');
+    return { statusCode: 200, body: '' };
+  }
+
+  if (resourceState === 'not_exists') {
+    logger.info('Resource deleted notification');
+    // Handle channel/calendar deletion
+    return { statusCode: 200, body: '' };
+  }
+
+  // 3. Check idempotency
+  const { syncService: svc, idempotencyStore: store } = getServices();
+  const deliveryId = `google-${event.headers['x-goog-channel-id']}-${event.headers['x-goog-message-number']}`;
+
+  if (await store.isProcessed(deliveryId)) {
+    logger.info('Duplicate webhook — already processed', { deliveryId });
+    return { statusCode: 200, body: '' };
+  }
+
+  try {
+    // 4. Fetch incremental changes using sync token
+    // The webhook doesn't include event data — call events.list with syncToken
+    await svc.processGoogleChanges(event.headers['x-goog-channel-id']!);
+
+    // 5. Mark as processed
+    await store.markProcessed(deliveryId);
+
+    logger.info('Google webhook processed successfully', { deliveryId });
+    return { statusCode: 200, body: '' };
+  } catch (error) {
+    logger.error('Failed to process Google webhook', { error, deliveryId });
+    // Return 200 to prevent webhook channel from being disabled
+    // The sync will self-heal on next webhook or scheduled sync
+    return { statusCode: 200, body: '' };
+  }
+}

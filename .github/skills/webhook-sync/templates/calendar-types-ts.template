@@ -1,0 +1,71 @@
+// Canonical Calendar Event Types
+// Shared types for bidirectional sync between Google Calendar and PCO Calendar
+
+/**
+ * Canonical calendar event — the internal representation used by sync logic.
+ * Both Google and PCO events are mapped to/from this format.
+ */
+export interface CalendarEvent {
+  /** Display name / title of the event */
+  name: string;
+
+  /** Optional description or notes */
+  description?: string;
+
+  /** Event start time (ISO 8601) */
+  startTime: string;
+
+  /** Event end time (ISO 8601) */
+  endTime: string;
+
+  /** Whether this is an all-day event */
+  allDay: boolean;
+
+  /** Physical location or virtual meeting link */
+  location?: string;
+
+  /** Event status */
+  status: 'confirmed' | 'tentative' | 'cancelled';
+
+  /** Last updated timestamp (ISO 8601) — used for conflict resolution */
+  updatedAt: string;
+}
+
+/**
+ * Tracks the mapping between a Google Calendar event and a PCO Calendar event.
+ */
+export interface SyncMapping {
+  /** Google Calendar event ID */
+  googleEventId: string;
+
+  /** PCO Calendar event ID */
+  pcoEventId: string;
+
+  /** Last time Google event was synced (ISO 8601) */
+  googleUpdatedAt: string;
+
+  /** Last time PCO event was synced (ISO 8601) */
+  pcoUpdatedAt: string;
+
+  /** Last successful sync timestamp (ISO 8601) */
+  lastSyncedAt: string;
+
+  /** Direction of last sync */
+  lastSyncDirection: 'google_to_pco' | 'pco_to_google';
+}
+
+/**
+ * Represents a sync operation to be applied.
+ */
+export interface SyncOperation {
+  action: 'create' | 'update' | 'delete';
+  target: 'google' | 'pco';
+  event: CalendarEvent;
+  sourceId: string;
+  targetId?: string; // undefined for creates
+}
+
+/**
+ * Conflict resolution strategies.
+ */
+export type ConflictStrategy = 'last-write-wins' | 'google-wins' | 'pco-wins';
