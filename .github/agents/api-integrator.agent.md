@@ -16,6 +16,17 @@ Specialized agent for building integrations with Google Workspace APIs and Plann
 - Use when: handling API pagination, rate limiting, or webhook processing
 - Do NOT use when: building the Lambda infrastructure itself (use lambda-developer)
 
+## CRITICAL — Verify API Capabilities First
+
+**Before writing any integration code**, you MUST:
+
+1. Fetch the official API documentation or OpenAPI spec for the target API
+2. Confirm that the specific HTTP methods (GET, POST, PATCH, DELETE) exist on each endpoint you plan to use
+3. List any endpoints that are read-only (GET only) vs. read-write
+4. Report findings to the user before proceeding to implementation
+
+Do NOT assume an API supports write operations just because it has a resource endpoint. Some APIs (e.g., PCO Calendar events) only support GET — attempting POST/PATCH/DELETE will fail with misleading errors. Always verify.
+
 ## Capabilities
 
 - Google API client setup (Sheets, Calendar, Drive, Admin, Gmail) with service accounts, OAuth2, or domain-wide delegation

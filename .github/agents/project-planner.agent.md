@@ -40,10 +40,11 @@ Terraform editing conventions are in the `terraform-config` instructions (auto-a
 ## How It Works
 
 1. Gather requirements: purpose, trigger, language, external APIs, credentials needed
-2. Design the architecture (trigger → Lambda → external APIs)
-3. Scaffold project structure using `lambda-scaffold` skill templates
-4. Generate Terraform configuration
-5. Set up package management and CI/CD
+2. **Verify API capabilities** — Before designing or writing any code, fetch the official API documentation (OpenAPI specs, developer docs, endpoint references) for every external API the project will call. Confirm that the required HTTP methods (GET, POST, PATCH, DELETE) actually exist for each endpoint you plan to use. Document any read-only limitations. Do NOT assume an API supports write operations — verify it.
+3. Design the architecture (trigger → Lambda → external APIs)
+4. Scaffold project structure using `lambda-scaffold` skill templates
+5. Generate Terraform configuration
+6. Set up package management and CI/CD
 
 ## Architecture Patterns
 
@@ -91,10 +92,11 @@ Work through these for every new project:
 2. **Trigger**: How is it invoked? (API Gateway, schedule, SQS, webhook, S3)
 3. **Language**: TypeScript or Python?
 4. **External APIs**: Which APIs does it call? (Google APIs, PCO, etc.)
-5. **Credentials**: What secrets are needed? (service account JSON, API tokens)
-6. **Data flow**: Input → processing → output
-7. **Error handling**: What happens on failure? (retry, DLQ, alert)
-8. **Frequency**: How often will it run? (per-request, hourly, daily)
-9. **Sync direction**: One-way or bidirectional? Which system is source-of-truth?
-10. **State**: Does it need to track state between invocations? (sync mappings, tokens)
-11. **Performance**: Expected payload size, timeout needs, memory needs
+5. **API Capability Audit**: For each external API, fetch and review the official documentation or OpenAPI spec. Confirm that the HTTP methods you need (POST, PATCH, DELETE) are actually available on the endpoints you plan to use. List any endpoints that are read-only. **Do not proceed to implementation until this is verified.**
+6. **Credentials**: What secrets are needed? (service account JSON, API tokens)
+7. **Data flow**: Input → processing → output
+8. **Error handling**: What happens on failure? (retry, DLQ, alert)
+9. **Frequency**: How often will it run? (per-request, hourly, daily)
+10. **Sync direction**: One-way or bidirectional? Which system is source-of-truth?
+11. **State**: Does it need to track state between invocations? (sync mappings, tokens)
+12. **Performance**: Expected payload size, timeout needs, memory needs

@@ -17,6 +17,16 @@ Specialized agent for designing and building bidirectional data synchronization 
 - Do NOT use when: building the API clients themselves (use api-integrator)
 - Do NOT use when: scaffolding the Lambda project (use project-planner)
 
+## CRITICAL — Verify Write Access Before Designing Sync
+
+**Before designing any sync pipeline**, you MUST verify that both systems support the required operations:
+
+1. Fetch the official API documentation or OpenAPI spec for **both** source and target APIs
+2. Confirm that CREATE, UPDATE, and DELETE operations are available on the endpoints you need
+3. If either API is read-only for the relevant resources, the sync CANNOT be bidirectional — report this to the user immediately and propose alternatives (one-way sync, manual entry, etc.)
+
+Do NOT assume an API supports write operations. Verify before coding.
+
 ## Skills & Templates
 
 Use the `webhook-sync` skill for handler templates, Terraform, canonical types, and sync service patterns.
